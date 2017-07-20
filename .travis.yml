@@ -6,21 +6,40 @@ services:
   - docker
 
 install:
-  - docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
-  - docker pull postgres:9.6.2-alpine
-  - docker pull arminc/clair-local-scan:v2.0.0
-  - docker run -d --name postgres -e 'PGDATA=/var/lib/postgresql/clair' -e POSTGRES_PASSWORD=password postgres:9.6.2-alpine
-  - sleep 20
-  - docker run -d --name clair --link postgres:postgres arminc/clair-local-scan:v2.0.0
+  - |
+    docker login -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
+    docker pull postgres:9.6.2-alpine
+    docker pull ryarnyah/clair-local-scan:v1.0.0
+    docker run -d --name postgres -e 'PGDATA=/var/lib/postgresql/clair' -e POSTGRES_PASSWORD=password postgres:9.6.2-alpine
+    while [[ $(docker logs postgres 2>&1 | grep -c "database system is ready to accept connections") -eq 0 ]]; do sleep 1; done
+    docker run -d --name clair --link postgres:postgres ryarnyah/clair-local-scan:v1.0.0
   
 script:
-  - ./check.sh clair
+  - |
+    while true
+    do
+        docker logs clair | grep "update finished" >& /dev/null
+        if [ $? == 0 ]; then
+            break
+        fi
+    
+        docker logs clair | grep "an error occured" >& /dev/null
+        if [ $? == 0 ]; then
+            echo "Error happend" >&2
+            docker logs clair
+            exit 1
+        fi
+    
+        echo -n "."
+        sleep 10
+    done
 
 after_success:
-  - docker stop clair
-  - docker stop postgres
-  - docker commit postgres arminc/clair-db:$(date +%Y-%m-%d)
-  - docker tag arminc/clair-db:$(date +%Y-%m-%d)tag arminc/clair-db:latest
-  - docker images
-  - docker push arminc/clair-db:$(date +%Y-%m-%d)
-  - docker push arminc/clair-db:latest
+  - |
+    docker stop clair
+    docker stop postgres
+    docker commit postgres ryarnyah/clair-db:$(date +%Y-%m-%d)
+    docker tag ryarnyah/clair-db:$(date +%Y-%m-%d)tag ryarnyah/clair-db:latest
+    docker images
+    docker push ryarnyah/clair-db:$(date +%Y-%m-%d)
+    docker push ryarnyah/clair-db:latest
